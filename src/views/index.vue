@@ -20,6 +20,9 @@
       >
         {{ isAnimationPlaying ? '停止动画' : '开始动画' }}
       </button>
+      <button @click="toggleMapType" class="maptype-btn">
+        切换底图
+      </button>
     </div>
 
     <div ref="chartRef" class="chart"></div>
@@ -49,292 +52,287 @@
     </div>
   </div>
 </template>
-  <script setup lang="ts">
-  import { ref, onMounted } from 'vue'
-  import * as echarts from 'echarts'
-  import { ElMessage, ElMessageBox } from 'element-plus'
-  import 'echarts/extension/bmap/bmap'
 
-  // 示例 ak（仅测试用，建议换成你自己的 ak）
-  const BAIDU_AK = 'E4805d16520de693a3fe707cdc962045'
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import * as echarts from 'echarts'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import 'echarts/extension/bmap/bmap'
 
-  // 加载百度地图
-  async function loadGeoJSON(): Promise<any> {
-    const res = await fetch('/haerbin.json')
-    const geoJSON = await res.json()
-    return geoJSON
-  }
+// 示例 ak（仅测试用，建议换成你自己的 ak）
+const BAIDU_AK = 'E4805d16520de693a3fe707cdc962045'
 
-  // 点位数据接口
-  interface Point {
-    id: string
-    serial: number // 序号
-    lng: number // 经度
-    lat: number // 维度
-  }
+// 加载哈尔滨 GeoJSON
+async function loadGeoJSON(): Promise<any> {
+  const res = await fetch('/haerbin.json')
+  return await res.json()
+}
 
-  // 连线数据接口
-  interface Connection {
-    id: string
-    sourceId: string
-    targetId: string
-  }
+// 点位数据接口
+interface Point {
+  id: string
+  serial: number // 序号
+  lng: number // 经度
+  lat: number // 纬度
+}
 
-  // 点位数据管理
-  const points = ref<Point[]>([])
-  // 连线数据管理
-  const connections = ref<Connection[]>([])
-  // 连线模式状态
-  const isConnectMode = ref(false)
-  const selectedPointForConnect = ref<string | null>(null)
-  // 动画状态
-  const isAnimationPlaying = ref(false)
+// 连线数据接口
+interface Connection {
+  id: string
+  sourceId: string
+  targetId: string
+}
 
-  // 菜单和对话框状态
-  const contextMenu = ref({
-    visible: false,
-    x: 0,
-    y: 0,
-    action: 'add' as 'add' | 'delete',
-    targetPointId: '',
-    clickCoord: [0, 0] as [number, number]
-  })
+// 点位与连线
+const points = ref<Point[]>([])
+const connections = ref<Connection[]>([])
 
-  const chartRef = ref(null)
-  let chart: echarts.ECharts | null = null   // ⚡ 在外层定义 chart
-  onMounted(async () => {
-    chart = echarts.init(chartRef.value)
+// 状态
+const isConnectMode = ref(false)
+const selectedPointForConnect = ref<string | null>(null)
+const isAnimationPlaying = ref(false)
 
-    // 注册 geojson
-    const geoJSON = await loadGeoJSON()
-    echarts.registerMap('customGeo', geoJSON)
+// 地图类型
+const currentMapType = ref<'normal' | 'satellite'>('normal')
 
-    // 添加左键点击事件监听（显示菜单）
-    chart.getZr().on('click', handleLeftClick)
+// 右键菜单
+const contextMenu = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+  action: 'add' as 'add' | 'delete',
+  targetPointId: '',
+  clickCoord: [0, 0] as [number, number]
+})
 
-    const option = {
-      bmap: {
-        center: [127.9999, 45.3890], // 增大向左 增大向下
-        zoom: 9,
-        roam: true,
-        mapStyle: {
-          styleJson: [
-            {
-              featureType: 'all',
-              elementType: 'all',
-              stylers: { lightness: 10, saturation: -20 },
-            },
-          ],
-        },
-      }
+const chartRef = ref(null)
+let chart: echarts.ECharts | null = null
+let bmap: any = null
+
+onMounted(async () => {
+  chart = echarts.init(chartRef.value)
+
+  const geoJSON = await loadGeoJSON()
+  echarts.registerMap('customGeo', geoJSON)
+
+  // 添加左键点击事件监听
+  chart.getZr().on('click', handleLeftClick)
+
+  const option = {
+    bmap: {
+      center: [127.9999, 45.3890],
+      zoom: 9,
+      roam: true,
+      mapStyle: {
+        styleJson: [
+          {
+            featureType: 'all',
+            elementType: 'all',
+            stylers: { lightness: 10, saturation: -20 },
+          },
+        ],
+      },
     }
+  }
 
-    chart.setOption(option)
+  chart.setOption(option)
 
-    // 初始化图表选项
+  updateChartOption()
+
+  // ⚠️ 动态加载百度地图脚本
+  loadBaiduMapScript()
+
+  // 获取百度地图实例
+  bmap = chart.getModel().getComponent('bmap').getBMap()
+
+  // // 禁用百度地图的所有直接交互事件
+  // bmap.disableDoubleClickZoom()
+  // bmap.disableDragging()
+  // bmap.disableScrollWheelZoom()
+  // bmap.disablePinchToZoom()
+  // bmap.disableKeyboard()
+  // bmap.disableInertialDragging()
+  // bmap.disableContinuousZoom()
+
+  // // 移除所有控件以避免直接交互
+  // bmap.removeControl(bmap.getContainer().querySelector('.BMap_stdMpCtrl'))
+  // bmap.removeControl(bmap.getContainer().querySelector('.BMap_scaleCtrl'))
+  // bmap.removeControl(bmap.getContainer().querySelector('.BMap_cpyCtrl'))
+
+
+  // 添加地图类型控件
+  const mapTypeControl = new (window as any).BMap.MapTypeControl({
+    mapTypes: [
+      (window as any).BMAP_NORMAL_MAP,
+      (window as any).BMAP_HYBRID_MAP
+    ]
+  })
+  bmap.addControl(mapTypeControl)
+
+  // 默认街道图
+  bmap.setMapType((window as any).BMAP_NORMAL_MAP)
+})
+
+// 更新图表选项
+function updateChartOption() {
+  if (!chart) return
+
+  const scatterData = points.value.map(p => ({
+    name: p.serial.toString(),
+    value: [p.lng, p.lat, p.serial]
+  }))
+
+  const lineData = getLineData()
+
+  chart.setOption({
+    series: [
+      {
+        name: 'map',
+        type: 'map',
+        map: 'customGeo',
+        roam: false,
+        itemStyle: {
+          areaColor: 'rgba(173, 216, 230, 0.2)',
+          borderColor: '#4682B4',
+          borderWidth: 1
+        },
+        emphasis: {
+          itemStyle: {
+            areaColor: 'rgba(173, 216, 230, 0.4)'
+          }
+        }
+      },
+      {
+        name: 'points',
+        type: 'scatter',
+        coordinateSystem: 'bmap',
+        data: scatterData,
+        symbolSize: 20,
+        itemStyle: { color: '#ff0000' },
+        label: {
+          show: true,
+          position: 'inside',
+          color: '#fff',
+          fontSize: 12,
+          fontWeight: 'bold',
+          formatter: (params: any) => params.data.name
+        }
+      },
+      {
+        name: 'lines',
+        type: 'lines',
+        coordinateSystem: 'bmap',
+        data: lineData,
+        lineStyle: { color: '#ff0000', width: 2 },
+        effect: {
+          show: lineData.length > 0 && isAnimationPlaying.value,
+          period: 6,
+          trailLength: 0.7,
+          color: '#ff0000',
+          symbolSize: 8
+        }
+      },
+      {
+        name: 'drone',
+        type: 'lines',
+        coordinateSystem: 'bmap',
+        data: lineData,
+        lineStyle: { opacity: 0 },
+        effect: {
+          show: lineData.length > 0 && isAnimationPlaying.value,
+          period: 8,
+          trailLength: 0,
+          symbol: 'image://wrj.svg',
+          symbolSize: [30, 30],
+          color: '#409eff'
+        }
+      }
+    ]
+  })
+}
+
+// 获取连线数据
+function getLineData() {
+  const lineData = []
+  if (connections.value.length > 0) {
+    connections.value.forEach(conn => {
+      const sourcePoint = points.value.find(p => p.id === conn.sourceId)
+      const targetPoint = points.value.find(p => p.id === conn.targetId)
+      if (sourcePoint && targetPoint) {
+        lineData.push({ coords: [[sourcePoint.lng, sourcePoint.lat], [targetPoint.lng, targetPoint.lat]] })
+      }
+    })
+  } else {
+    const sortedPoints = [...points.value].sort((a, b) => a.serial - b.serial)
+    for (let i = 0; i < sortedPoints.length - 1; i++) {
+      lineData.push({
+        coords: [[sortedPoints[i].lng, sortedPoints[i].lat], [sortedPoints[i + 1].lng, sortedPoints[i + 1].lat]]
+      })
+    }
+  }
+  return lineData
+}
+
+// 切换底图
+function toggleMapType() {
+  if (!bmap) return
+  if (currentMapType.value === 'normal') {
+    bmap.setMapType((window as any).BMAP_SATELLITE_MAP)
+    currentMapType.value = 'satellite'
+    ElMessage.success('已切换到实景卫星图')
+  } else {
+    bmap.setMapType((window as any).BMAP_NORMAL_MAP)
+    currentMapType.value = 'normal'
+    ElMessage.success('已切换到街道图')
+  }
+}
+
+// 点击事件
+function handleLeftClick(event: any) {
+  if (!chart) return
+  const pixel = [event.offsetX, event.offsetY]
+  const coord = chart.convertFromPixel({ bmapIndex: 0 }, pixel)
+  if (!coord) return
+
+  const clickedPoint = findPointAtPosition(coord[0], coord[1])
+  contextMenu.value = {
+    visible: true,
+    x: event.offsetX,
+    y: event.offsetY,
+    action: clickedPoint ? 'delete' : 'add',
+    targetPointId: clickedPoint?.id || '',
+    clickCoord: [coord[0], coord[1]]
+  }
+}
+
+function findPointAtPosition(lng: number, lat: number, threshold = 0.01) {
+  return points.value.find(point =>
+    Math.abs(point.lng - lng) < threshold &&
+    Math.abs(point.lat - lat) < threshold
+  )
+}
+
+function hideContextMenu() {
+  contextMenu.value.visible = false
+}
+
+function addPoint() {
+  ElMessageBox.prompt('请输入点位名称', '添加点位', {
+    confirmButtonText: '确认',
+    cancelButtonText: '取消',
+  }).then(({ value }) => {
+    const newPoint: Point = {
+      id: Date.now().toString(),
+      serial: value,
+      lng: contextMenu.value.clickCoord[0],
+      lat: contextMenu.value.clickCoord[1]
+    }
+    points.value.push(newPoint)
     updateChartOption()
+    hideContextMenu()
+  }).catch(() => {})
+}
 
-    // ⚠️ 动态加载百度地图脚本
-    loadBaiduMapScript()
-
-    // 获取百度地图实例
-    let bmap: any = null
-    bmap = chart.getModel().getComponent('bmap').getBMap()
-
-    // 禁用百度地图的所有直接交互事件
-    bmap.disableDoubleClickZoom()
-    bmap.disableDragging()
-    bmap.disableScrollWheelZoom()
-    bmap.disablePinchToZoom()
-    bmap.disableKeyboard()
-    bmap.disableInertialDragging()
-    bmap.disableContinuousZoom()
-
-    // 移除所有控件以避免直接交互
-    bmap.removeControl(bmap.getContainer().querySelector('.BMap_stdMpCtrl'))
-    bmap.removeControl(bmap.getContainer().querySelector('.BMap_scaleCtrl'))
-    bmap.removeControl(bmap.getContainer().querySelector('.BMap_cpyCtrl'))
-  })
-
-  // 更新图表选项
-  function updateChartOption() {
-    if (!chart) return
-
-    const scatterData = points.value.map(p => ({
-      name: p.serial.toString(),
-      value: [p.lng, p.lat, p.serial]
-    }))
-
-    const lineData = getLineData()
-
-    chart.setOption({
-      series: [
-        {
-          name: 'map',
-          type: 'map',
-          map: 'customGeo',
-          roam: false,
-          itemStyle: {
-            areaColor: 'rgba(173, 216, 230, 0.2)',
-            borderColor: '#4682B4',
-            borderWidth: 1
-          },
-          emphasis: {
-            itemStyle: {
-              areaColor: 'rgba(173, 216, 230, 0.4)'
-            }
-          }
-        },
-        {
-          name: 'points',
-          type: 'scatter',
-          coordinateSystem: 'bmap',
-          data: scatterData,
-          symbolSize: 20,
-          itemStyle: {
-            color: '#ff0000'
-          },
-          label: {
-            show: true,
-            position: 'inside',
-            color: '#fff',
-            fontSize: 12,
-            fontWeight: 'bold',
-            formatter: function(params: any) {
-              return params.data.name
-            }
-          }
-        },
-        {
-          name: 'lines',
-          type: 'lines',
-          coordinateSystem: 'bmap',
-          data: lineData,
-          lineStyle: {
-            color: '#ff0000',
-            width: 2
-          },
-          effect: {
-            show: lineData.length > 0 && isAnimationPlaying.value,
-            period: 6,
-            trailLength: 0.7,
-            color: '#ff0000',
-            symbolSize: 8
-          }
-        },
-        {
-          name: 'drone',
-          type: 'lines',
-          coordinateSystem: 'bmap',
-          data: lineData,
-          lineStyle: {
-            opacity: 0
-          },
-          effect: {
-            show: lineData.length > 0 && isAnimationPlaying.value,
-            period: 8,
-            trailLength: 0,
-            symbol: 'image://wrj.svg',
-            symbolSize: [30, 30],
-            color: '#409eff'
-          }
-        }
-      ]
-    })
-  }
-
-  // 获取连线数据
-  function getLineData() {
-    const lineData = []
-
-    // 如果有自定义连线，使用自定义连线
-    if (connections.value.length > 0) {
-      connections.value.forEach(conn => {
-        const sourcePoint = points.value.find(p => p.id === conn.sourceId)
-        const targetPoint = points.value.find(p => p.id === conn.targetId)
-        if (sourcePoint && targetPoint) {
-          lineData.push({
-            coords: [
-              [sourcePoint.lng, sourcePoint.lat],
-              [targetPoint.lng, targetPoint.lat]
-            ]
-          })
-        }
-      })
-    } else {
-      // 否则使用默认的顺序连线
-      const sortedPoints = [...points.value].sort((a, b) => a.serial - b.serial)
-      for (let i = 0; i < sortedPoints.length - 1; i++) {
-        lineData.push({
-          coords: [
-            [sortedPoints[i].lng, sortedPoints[i].lat],
-            [sortedPoints[i + 1].lng, sortedPoints[i + 1].lat]
-          ]
-        })
-      }
-    }
-
-    return lineData
-  }
-
-  // 处理左键点击事件（显示菜单）
-  function handleLeftClick(event: any) {
-    // event.preventDefault()
-
-    if (!chart) return
-
-    const pixel = [event.offsetX, event.offsetY]
-    const coord = chart.convertFromPixel({ bmapIndex: 0 }, pixel)
-    console.log(coord)
-    if (!coord) return
-
-    // 检查是否点击在已有点位上
-    const clickedPoint = findPointAtPosition(coord[0], coord[1])
-
-    contextMenu.value = {
-      visible: true,
-      x: event.offsetX,
-      y: event.offsetY,
-      action: clickedPoint ? 'delete' : 'add',
-      targetPointId: clickedPoint?.id || '',
-      clickCoord: [coord[0], coord[1]]
-    }
-  }
-
-  // 查找指定位置的点位
-  function findPointAtPosition(lng: number, lat: number, threshold = 0.01) {
-    return points.value.find(point =>
-      Math.abs(point.lng - lng) < threshold &&
-      Math.abs(point.lat - lat) < threshold
-    )
-  }
-
-  // 隐藏菜单
-  function hideContextMenu() {
-    contextMenu.value.visible = false
-  }
-
-  // 添加点位
-  function addPoint() {
-    ElMessageBox.prompt('请输入点位名称', '添加点位', {
-      confirmButtonText: '确认',
-      cancelButtonText: '取消',
-    })
-      .then(({ value }) => {
-        const newPoint: Point = {
-          id: Date.now().toString(),
-          serial: value,
-          lng: contextMenu.value.clickCoord[0],
-          lat: contextMenu.value.clickCoord[1]
-        }
-        points.value.push(newPoint)
-        updateChartOption()
-        hideContextMenu()
-      })
-      .catch(() => {})
-  }
-
-// 删除点位
 function deletePoint() {
   const index = points.value.findIndex(p => p.id === contextMenu.value.targetPointId)
   if (index !== -1) {
@@ -344,105 +342,69 @@ function deletePoint() {
   hideContextMenu()
 }
 
-// 编辑序号
 function editSerial(pointId: string) {
   ElMessageBox.prompt('请输入点位名称', '编辑点位名称', {
-      confirmButtonText: '确认',
-      cancelButtonText: '取消',
-    })
-      .then(({ value }) => {
-        const point = points.value.find(p => p.id === pointId)
-        if (point) {
-          point.serial = value
-        }
-        updateChartOption()
-        hideContextMenu()
-      })
-      .catch(() => {})
+    confirmButtonText: '确认',
+    cancelButtonText: '取消',
+  }).then(({ value }) => {
+    const point = points.value.find(p => p.id === pointId)
+    if (point) point.serial = value
+    updateChartOption()
+    hideContextMenu()
+  }).catch(() => {})
 }
 
-  // 切换连线模式
-  function toggleConnectMode() {
-    console.log('qiehuan');
+function toggleConnectMode() {
+  isConnectMode.value = !isConnectMode.value
+  selectedPointForConnect.value = null
+  ElMessage.info(isConnectMode.value ? '已进入连线模式' : '已退出连线模式')
+}
 
-    isConnectMode.value = !isConnectMode.value
-    selectedPointForConnect.value = null
-    if (isConnectMode.value) {
-      ElMessage.info('已进入连线模式，右键点击点位开始连线')
-    } else {
-      ElMessage.info('已退出连线模式')
-    }
+function clearAllConnections() {
+  connections.value = []
+  updateChartOption()
+  ElMessage.success('已清除所有连线')
+}
+
+function startConnection(pointId: string) {
+  selectedPointForConnect.value = pointId
+  const point = points.value.find(p => p.id === pointId)
+  ElMessage.info(`已选择点位 ${point?.serial}`)
+  hideContextMenu()
+}
+
+function finishConnection(targetPointId: string) {
+  if (!selectedPointForConnect.value || selectedPointForConnect.value === targetPointId) {
+    ElMessage.warning('请选择不同的起始点和目标点')
+    return
   }
-
-  // 清除所有连线
-  function clearAllConnections() {
-    connections.value = []
-    updateChartOption()
-    ElMessage.success('已清除所有连线')
+  const existing = connections.value.find(conn =>
+    conn.sourceId === selectedPointForConnect.value && conn.targetId === targetPointId
+  )
+  if (existing) {
+    ElMessage.warning('该连线已存在')
+    return
   }
+  connections.value.push({ id: Date.now().toString(), sourceId: selectedPointForConnect.value, targetId })
+  updateChartOption()
+  selectedPointForConnect.value = null
+  hideContextMenu()
+}
 
-  // 开始连线
-  function startConnection(pointId: string) {
-    selectedPointForConnect.value = pointId
-    const point = points.value.find(p => p.id === pointId)
-    ElMessage.info(`已选择点位 ${point?.serial}，请右键点击目标点位完成连线`)
-    hideContextMenu()
-  }
+function toggleAnimation() {
+  isAnimationPlaying.value = !isAnimationPlaying.value
+  updateChartOption()
+  ElMessage[isAnimationPlaying.value ? 'success' : 'info'](isAnimationPlaying.value ? '无人机动画已开始' : '无人机动画已停止')
+}
 
-  // 完成连线
-  function finishConnection(targetPointId: string) {
-    if (!selectedPointForConnect.value || selectedPointForConnect.value === targetPointId) {
-      ElMessage.warning('请选择不同的起始点和目标点')
-      return
-    }
-
-    // 检查是否已存在相同的连线
-    const existingConnection = connections.value.find(conn =>
-      conn.sourceId === selectedPointForConnect.value && conn.targetId === targetPointId
-    )
-
-    if (existingConnection) {
-      ElMessage.warning('该连线已存在')
-      return
-    }
-
-    // 添加新连线
-    const newConnection: Connection = {
-      id: Date.now().toString(),
-      sourceId: selectedPointForConnect.value,
-      targetId: targetPointId
-    }
-
-    connections.value.push(newConnection)
-    updateChartOption()
-
-    const sourcePoint = points.value.find(p => p.id === selectedPointForConnect.value)
-    const targetPoint = points.value.find(p => p.id === targetPointId)
-    ElMessage.success(`已连接点位 ${sourcePoint?.serial} 到点位 ${targetPoint?.serial}`)
-
-    selectedPointForConnect.value = null
-    hideContextMenu()
-  }
-
-  // 切换动画状态
-  function toggleAnimation() {
-    isAnimationPlaying.value = !isAnimationPlaying.value
-    updateChartOption()
-    if (isAnimationPlaying.value) {
-      ElMessage.success('无人机动画已开始')
-    } else {
-      ElMessage.info('无人机动画已停止')
-    }
-  }
-
-  function loadBaiduMapScript() {
-    if (document.getElementById('baidu-map')) return
-    const script = document.createElement('script')
-    script.id = 'baidu-map'
-    script.type = 'text/javascript'
-    script.src = `https://api.map.baidu.com/api?v=3.0&ak=${BAIDU_AK}&__ec_v__=20190126`
-    document.body.appendChild(script)
-  }
+function loadBaiduMapScript() {
+  if (document.getElementById('baidu-map')) return
+  const script = document.createElement('script')
+  script.id = 'baidu-map'
+  script.type = 'text/javascript'
+  script.src = `https://api.map.baidu.com/api?v=3.0&ak=${BAIDU_AK}`
+  document.body.appendChild(script)
+}
 </script>
 
 <style scoped>
@@ -457,19 +419,19 @@ function editSerial(pointId: string) {
     display: flex;
     gap: 10px;
 
-    .mode-btn, .clear-btn, .animation-btn {
-        padding: 8px 16px;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 14px;
-        transition: all 0.3s;
+    .mode-btn, .clear-btn, .animation-btn, .maptype-btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.3s;
 
-        &:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
+      &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
       }
+    }
 
     .mode-btn {
       background-color: #409eff;
