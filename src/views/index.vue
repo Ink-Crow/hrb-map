@@ -52,7 +52,7 @@
           删除点位
         </div>
         <div class="menu-item" @click="editSerial(contextMenu.targetPointId)">
-          编辑序号
+          编辑点位名称
         </div>
         <div v-if="isConnectMode" class="menu-item" @click="startConnection(contextMenu.targetPointId)">
           从此点开始连线
@@ -124,7 +124,7 @@ onMounted(async () => {
       roam: true
     }
   }
-  chart.setOption(option)
+  chart.setOption(option, { notMerge: true, replaceMerge: ['series'] })
   updateChartOption()
 
   // ⚠️ 动态加载百度地图脚本
@@ -133,12 +133,23 @@ onMounted(async () => {
   // 获取百度地图实例
   bmap = chart.getModel().getComponent('bmap').getBMap()
 
+  // 初始禁用双击缩放
+  bmap.disableDoubleClickZoom()
+
+  // 确保每次 ECharts 渲染完成后仍然禁用
+  chart.on('finished', () => {
+    if (bmap) {
+      bmap.disableDoubleClickZoom()
+    }
+  })
+
   // 右键：添加点位
   chart.getZr().on('contextmenu', handleRightClick)
 
   // 左键：编辑或关闭菜单
   chart.getZr().on('click', handleLeftClick)
 
+  // 地图类型控件
   const mapTypeControl = new (window as any).BMap.MapTypeControl({
     mapTypes: [
       (window as any).BMAP_NORMAL_MAP,
@@ -150,6 +161,7 @@ onMounted(async () => {
   // 默认街道图
   bmap.setMapType((window as any).BMAP_NORMAL_MAP)
 })
+
 
 // 更新图表选项
 function updateChartOption() {
@@ -164,31 +176,55 @@ function updateChartOption() {
 
   chart.setOption({
     series: [
+      // 🔹 透明点击热区
+      {
+        name: 'points-hit-area',
+        type: 'scatter',
+        coordinateSystem: 'bmap',
+        data: scatterData,
+        symbol: 'circle',
+        symbolSize: 40, // 点击范围大
+        itemStyle: {
+          color: 'rgba(255,255,255,0)' // 完全透明
+        },
+        emphasis: {
+          itemStyle: {
+            color: 'rgba(255,255,255,0)' // 悬停也透明
+          }
+        },
+        // 为了保证点击优先触发这个 scatter
+        z: 10
+      },
+
+      // 🔹 实际的点位图标
       {
         name: 'points',
         type: 'scatter',
         coordinateSystem: 'bmap',
         data: scatterData,
-        symbolSize: 20, // 点更大
-        itemStyle: { color: '#ff0000' },
+        symbol: 'image://wrj.svg',   // 用图片
+        symbolSize: [40, 40],        // 图片大小
+        z: 11,                       // 显示在透明热区上面
         label: {
           show: true,
           position: 'top',
           formatter: (params: any) => `{name|${params.data.name}}`,
           rich: {
             name: {
-              color: '#000',              // 文字颜色
+              color: '#000',
               fontSize: 14,
               fontWeight: 'bold',
-              backgroundColor: '#fffbe6', // 背景色
-              padding: [4, 8],            // 上下左右 padding
-              borderRadius: 6,            // 圆角
-              borderColor: '#ff9900',     // 边框
+              backgroundColor: '#fffbe6',
+              padding: [4, 8],
+              borderRadius: 6,
+              borderColor: '#ff9900',
               borderWidth: 1
             }
           }
         }
       },
+
+      // 🔹 连线
       {
         name: 'lines',
         type: 'lines',
@@ -203,6 +239,8 @@ function updateChartOption() {
           symbolSize: 8
         }
       },
+
+      // 🔹 无人机动画
       {
         name: 'drone',
         type: 'lines',
@@ -214,13 +252,13 @@ function updateChartOption() {
           period: 8,
           trailLength: 0,
           symbol: 'image://wrj.svg',
-          symbolSize: [30, 30]
+          symbolSize: [30, 30],
+          color: '#409eff'
         }
       }
     ]
   })
 }
-
 function getLineData() {
   const lineData = []
   if (connections.value.length > 0) {
