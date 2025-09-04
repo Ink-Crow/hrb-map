@@ -2,31 +2,43 @@
   <div class="map-box" style="width: 100vw; height: 100vh;">
     <!-- 工具栏 -->
     <div class="toolbar">
-      <button
+      <el-button
         @click="toggleConnectMode"
-        :class="{ active: isConnectMode }"
-        class="mode-btn"
+        :type="isConnectMode ? 'warning': 'primary'"
       >
         {{ isConnectMode ? '退出连线模式' : '进入连线模式' }}
-      </button>
-      <button @click="clearAllConnections" class="clear-btn">
+      </el-button>
+      <el-button
+        @click="clearAllConnections"
+        type="danger"
+      >
         清除所有连线
-      </button>
-      <button
+      </el-button>
+      <el-button
         @click="toggleAnimation"
-        :class="{ active: isAnimationPlaying }"
-        class="animation-btn"
+        type="success"
         :disabled="getLineData().length === 0"
       >
         {{ isAnimationPlaying ? '停止动画' : '开始动画' }}
-      </button>
-      <button @click="toggleMapType" class="maptype-btn">
+      </el-button>
+      <!-- <button @click="toggleMapType" class="maptype-btn">
         切换底图
-      </button>
+      </button> -->
+      <el-button :disabled="!points.length" @click="exportPoints">导出点位</el-button>
+      <el-button @click="triggerImport">导入点位</el-button>
+      <!-- 隐藏的文件输入框 -->
+      <input
+        type="file"
+        ref="fileInputRef"
+        style="display: none"
+        accept=".json"
+        @change="importPoints"
+      />
     </div>
 
     <div ref="chartRef" class="chart"></div>
-    <!-- 左键菜单 -->
+
+    <!-- 右键菜单 -->
     <div
       v-if="contextMenu.visible"
       class="context-menu"
@@ -59,19 +71,12 @@ import * as echarts from 'echarts'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import 'echarts/extension/bmap/bmap'
 
-// 示例 ak（仅测试用，建议换成你自己的 ak）
 const BAIDU_AK = 'E4805d16520de693a3fe707cdc962045'
-
-// 加载哈尔滨 GeoJSON
-async function loadGeoJSON(): Promise<any> {
-  const res = await fetch('/haerbin.json')
-  return await res.json()
-}
 
 // 点位数据接口
 interface Point {
   id: string
-  serial: number // 序号
+  serial: number | string // 序号
   lng: number // 经度
   lat: number // 纬度
 }
@@ -80,7 +85,7 @@ interface Point {
 interface Connection {
   id: string
   sourceId: string
-  targetId: string
+  targetPointId: string
 }
 
 // 点位与连线
@@ -112,31 +117,14 @@ let bmap: any = null
 onMounted(async () => {
   chart = echarts.init(chartRef.value)
 
-  const geoJSON = await loadGeoJSON()
-  echarts.registerMap('customGeo', geoJSON)
-
-  // 添加左键点击事件监听
-  chart.getZr().on('click', handleLeftClick)
-
   const option = {
     bmap: {
       center: [127.9999, 45.3890],
       zoom: 9,
-      roam: true,
-      mapStyle: {
-        styleJson: [
-          {
-            featureType: 'all',
-            elementType: 'all',
-            stylers: { lightness: 10, saturation: -20 },
-          },
-        ],
-      },
+      roam: true
     }
   }
-
   chart.setOption(option)
-
   updateChartOption()
 
   // ⚠️ 动态加载百度地图脚本
@@ -145,22 +133,12 @@ onMounted(async () => {
   // 获取百度地图实例
   bmap = chart.getModel().getComponent('bmap').getBMap()
 
-  // // 禁用百度地图的所有直接交互事件
-  // bmap.disableDoubleClickZoom()
-  // bmap.disableDragging()
-  // bmap.disableScrollWheelZoom()
-  // bmap.disablePinchToZoom()
-  // bmap.disableKeyboard()
-  // bmap.disableInertialDragging()
-  // bmap.disableContinuousZoom()
+  // 右键：添加点位
+  chart.getZr().on('contextmenu', handleRightClick)
 
-  // // 移除所有控件以避免直接交互
-  // bmap.removeControl(bmap.getContainer().querySelector('.BMap_stdMpCtrl'))
-  // bmap.removeControl(bmap.getContainer().querySelector('.BMap_scaleCtrl'))
-  // bmap.removeControl(bmap.getContainer().querySelector('.BMap_cpyCtrl'))
+  // 左键：编辑或关闭菜单
+  chart.getZr().on('click', handleLeftClick)
 
-
-  // 添加地图类型控件
   const mapTypeControl = new (window as any).BMap.MapTypeControl({
     mapTypes: [
       (window as any).BMAP_NORMAL_MAP,
@@ -187,35 +165,28 @@ function updateChartOption() {
   chart.setOption({
     series: [
       {
-        name: 'map',
-        type: 'map',
-        map: 'customGeo',
-        roam: false,
-        itemStyle: {
-          areaColor: 'rgba(173, 216, 230, 0.2)',
-          borderColor: '#4682B4',
-          borderWidth: 1
-        },
-        emphasis: {
-          itemStyle: {
-            areaColor: 'rgba(173, 216, 230, 0.4)'
-          }
-        }
-      },
-      {
         name: 'points',
         type: 'scatter',
         coordinateSystem: 'bmap',
         data: scatterData,
-        symbolSize: 20,
+        symbolSize: 20, // 点更大
         itemStyle: { color: '#ff0000' },
         label: {
           show: true,
-          position: 'inside',
-          color: '#fff',
-          fontSize: 12,
-          fontWeight: 'bold',
-          formatter: (params: any) => params.data.name
+          position: 'top',
+          formatter: (params: any) => `{name|${params.data.name}}`,
+          rich: {
+            name: {
+              color: '#000',              // 文字颜色
+              fontSize: 14,
+              fontWeight: 'bold',
+              backgroundColor: '#fffbe6', // 背景色
+              padding: [4, 8],            // 上下左右 padding
+              borderRadius: 6,            // 圆角
+              borderColor: '#ff9900',     // 边框
+              borderWidth: 1
+            }
+          }
         }
       },
       {
@@ -243,31 +214,25 @@ function updateChartOption() {
           period: 8,
           trailLength: 0,
           symbol: 'image://wrj.svg',
-          symbolSize: [30, 30],
-          color: '#409eff'
+          symbolSize: [30, 30]
         }
       }
     ]
   })
 }
 
-// 获取连线数据
 function getLineData() {
   const lineData = []
   if (connections.value.length > 0) {
     connections.value.forEach(conn => {
-      const sourcePoint = points.value.find(p => p.id === conn.sourceId)
-      const targetPoint = points.value.find(p => p.id === conn.targetId)
-      if (sourcePoint && targetPoint) {
-        lineData.push({ coords: [[sourcePoint.lng, sourcePoint.lat], [targetPoint.lng, targetPoint.lat]] })
-      }
+      const s = points.value.find(p => p.id === conn.sourceId)
+      const t = points.value.find(p => p.id === conn.targetPointId)
+      if (s && t) lineData.push({ coords: [[s.lng, s.lat], [t.lng, t.lat]] })
     })
   } else {
-    const sortedPoints = [...points.value].sort((a, b) => a.serial - b.serial)
-    for (let i = 0; i < sortedPoints.length - 1; i++) {
-      lineData.push({
-        coords: [[sortedPoints[i].lng, sortedPoints[i].lat], [sortedPoints[i + 1].lng, sortedPoints[i + 1].lat]]
-      })
+    const sorted = [...points.value].sort((a, b) => Number(a.serial) - Number(b.serial))
+    for (let i = 0; i < sorted.length - 1; i++) {
+      lineData.push({ coords: [[sorted[i].lng, sorted[i].lat], [sorted[i + 1].lng, sorted[i + 1].lat]] })
     }
   }
   return lineData
@@ -287,7 +252,25 @@ function toggleMapType() {
   }
 }
 
-// 点击事件
+// 右键点击 → 添加点位
+function handleRightClick(event: any) {
+  if (!chart) return
+  const pixel = [event.offsetX, event.offsetY]
+  const coord = chart.convertFromPixel({ bmapIndex: 0 }, pixel)
+  if (!coord) return
+
+  contextMenu.value = {
+    visible: true,
+    x: event.offsetX,
+    y: event.offsetY,
+    action: 'add',
+    targetPointId: '',
+    clickCoord: [coord[0], coord[1]]
+  }
+  event.event.preventDefault()
+}
+
+// 左键点击 → 编辑点位 or 关闭菜单
 function handleLeftClick(event: any) {
   if (!chart) return
   const pixel = [event.offsetX, event.offsetY]
@@ -295,20 +278,26 @@ function handleLeftClick(event: any) {
   if (!coord) return
 
   const clickedPoint = findPointAtPosition(coord[0], coord[1])
-  contextMenu.value = {
-    visible: true,
-    x: event.offsetX,
-    y: event.offsetY,
-    action: clickedPoint ? 'delete' : 'add',
-    targetPointId: clickedPoint?.id || '',
-    clickCoord: [coord[0], coord[1]]
+
+  if (clickedPoint) {
+    // 点击已有点位 → 编辑/删除
+    contextMenu.value = {
+      visible: true,
+      x: event.offsetX,
+      y: event.offsetY,
+      action: 'delete',
+      targetPointId: clickedPoint.id,
+      clickCoord: [coord[0], coord[1]]
+    }
+  } else {
+    // 点击空白 → 关闭菜单
+    hideContextMenu()
   }
 }
 
 function findPointAtPosition(lng: number, lat: number, threshold = 0.01) {
-  return points.value.find(point =>
-    Math.abs(point.lng - lng) < threshold &&
-    Math.abs(point.lat - lat) < threshold
+  return points.value.find(p =>
+    Math.abs(p.lng - lng) < threshold && Math.abs(p.lat - lat) < threshold
   )
 }
 
@@ -321,24 +310,21 @@ function addPoint() {
     confirmButtonText: '确认',
     cancelButtonText: '取消',
   }).then(({ value }) => {
-    const newPoint: Point = {
+    points.value.push({
       id: Date.now().toString(),
       serial: value,
       lng: contextMenu.value.clickCoord[0],
       lat: contextMenu.value.clickCoord[1]
-    }
-    points.value.push(newPoint)
+    })
     updateChartOption()
     hideContextMenu()
   }).catch(() => {})
 }
 
 function deletePoint() {
-  const index = points.value.findIndex(p => p.id === contextMenu.value.targetPointId)
-  if (index !== -1) {
-    points.value.splice(index, 1)
-    updateChartOption()
-  }
+  const idx = points.value.findIndex(p => p.id === contextMenu.value.targetPointId)
+  if (idx !== -1) points.value.splice(idx, 1)
+  updateChartOption()
   hideContextMenu()
 }
 
@@ -347,8 +333,8 @@ function editSerial(pointId: string) {
     confirmButtonText: '确认',
     cancelButtonText: '取消',
   }).then(({ value }) => {
-    const point = points.value.find(p => p.id === pointId)
-    if (point) point.serial = value
+    const p = points.value.find(p => p.id === pointId)
+    if (p) p.serial = value
     updateChartOption()
     hideContextMenu()
   }).catch(() => {})
@@ -368,8 +354,8 @@ function clearAllConnections() {
 
 function startConnection(pointId: string) {
   selectedPointForConnect.value = pointId
-  const point = points.value.find(p => p.id === pointId)
-  ElMessage.info(`已选择点位 ${point?.serial}`)
+  const p = points.value.find(p => p.id === pointId)
+  ElMessage.info(`已选择点位 ${p?.serial}`)
   hideContextMenu()
 }
 
@@ -378,14 +364,11 @@ function finishConnection(targetPointId: string) {
     ElMessage.warning('请选择不同的起始点和目标点')
     return
   }
-  const existing = connections.value.find(conn =>
-    conn.sourceId === selectedPointForConnect.value && conn.targetId === targetPointId
-  )
-  if (existing) {
+  if (connections.value.find(c => c.sourceId === selectedPointForConnect.value && c.targetPointId === targetPointId)) {
     ElMessage.warning('该连线已存在')
     return
   }
-  connections.value.push({ id: Date.now().toString(), sourceId: selectedPointForConnect.value, targetId })
+  connections.value.push({ id: Date.now().toString(), sourceId: selectedPointForConnect.value, targetPointId })
   updateChartOption()
   selectedPointForConnect.value = null
   hideContextMenu()
@@ -404,6 +387,48 @@ function loadBaiduMapScript() {
   script.type = 'text/javascript'
   script.src = `https://api.map.baidu.com/api?v=3.0&ak=${BAIDU_AK}`
   document.body.appendChild(script)
+}
+
+function exportPoints() {
+  const data = {
+    points: points.value,
+    connections: connections.value
+  }
+  const jsonStr = JSON.stringify(data, null, 2)
+  const blob = new Blob([jsonStr], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'map-data.json'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// 引用隐藏的 input
+const fileInputRef = ref<HTMLInputElement | null>(null)
+
+function triggerImport() {
+  fileInputRef.value?.click()
+}
+
+function importPoints(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+
+  const reader = new FileReader()
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target?.result as string)
+      points.value = data.points || []
+      connections.value = data.connections || []
+      updateChartOption()
+      ElMessage.success('导入成功')
+    } catch (err) {
+      ElMessage.error('导入失败，文件格式错误')
+    }
+  }
+  reader.readAsText(file)
 }
 </script>
 
