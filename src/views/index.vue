@@ -124,7 +124,7 @@ onMounted(async () => {
       roam: true
     }
   }
-  chart.setOption(option, { notMerge: true, replaceMerge: ['series'] })
+  chart.setOption(option)
   updateChartOption()
 
   // ⚠️ 动态加载百度地图脚本
@@ -208,19 +208,22 @@ function updateChartOption() {
         label: {
           show: true,
           position: 'top',
-          formatter: (params: any) => `{name|${params.data.name}}`,
-          rich: {
-            name: {
-              color: '#000',
-              fontSize: 14,
-              fontWeight: 'bold',
-              backgroundColor: '#fffbe6',
-              padding: [4, 8],
-              borderRadius: 6,
-              borderColor: '#ff9900',
-              borderWidth: 1
-            }
-          }
+          formatter: (params: any) => {
+            const formatCoord = (num: number) => num.toFixed(3).padStart(7, '0')
+            const lng = formatCoord(params.data.value[0])
+            const lat = formatCoord(params.data.value[1])
+            return `${params.data.name}\n经度：${lng}\n纬度：${lat}`
+          },
+          color: '#000',
+          fontSize: 14,
+          fontWeight: 'bold',
+          lineHeight: 20,
+          align: 'left',
+          backgroundColor: '#fffbe6', // 整个 label 作为一个背景
+          padding: [6, 10],
+          borderRadius: 6,
+          borderColor: '#ff9900',
+          borderWidth: 1
         }
       },
 
@@ -259,7 +262,15 @@ function updateChartOption() {
     ]
   })
 }
+
+// 获取连线数据
 function getLineData() {
+  // 如果强制清空标记开启，则只返回空数组一次
+  if (forceClearConnections.value) {
+    forceClearConnections.value = false  // 🔹 清空后立刻恢复
+    return []
+  }
+
   const lineData = []
   if (connections.value.length > 0) {
     connections.value.forEach(conn => {
@@ -270,7 +281,9 @@ function getLineData() {
   } else {
     const sorted = [...points.value].sort((a, b) => Number(a.serial) - Number(b.serial))
     for (let i = 0; i < sorted.length - 1; i++) {
-      lineData.push({ coords: [[sorted[i].lng, sorted[i].lat], [sorted[i + 1].lng, sorted[i + 1].lat]] })
+      lineData.push({
+        coords: [[sorted[i].lng, sorted[i].lat], [sorted[i + 1].lng, sorted[i + 1].lat]]
+      })
     }
   }
   return lineData
@@ -384,8 +397,13 @@ function toggleConnectMode() {
   ElMessage.info(isConnectMode.value ? '已进入连线模式' : '已退出连线模式')
 }
 
+// 新增标记
+const forceClearConnections = ref(false)
+
+// 清除所有连线
 function clearAllConnections() {
-  connections.value = []
+  connections.value.splice(0, connections.value.length)
+  forceClearConnections.value = true   // 标记已强制清空
   updateChartOption()
   ElMessage.success('已清除所有连线')
 }
@@ -397,6 +415,7 @@ function startConnection(pointId: string) {
   hideContextMenu()
 }
 
+// 当用户新建连线时，记得重置标记
 function finishConnection(targetPointId: string) {
   if (!selectedPointForConnect.value || selectedPointForConnect.value === targetPointId) {
     ElMessage.warning('请选择不同的起始点和目标点')
@@ -407,6 +426,7 @@ function finishConnection(targetPointId: string) {
     return
   }
   connections.value.push({ id: Date.now().toString(), sourceId: selectedPointForConnect.value, targetPointId })
+  forceClearConnections.value = false   // 有新连线时恢复
   updateChartOption()
   selectedPointForConnect.value = null
   hideContextMenu()
