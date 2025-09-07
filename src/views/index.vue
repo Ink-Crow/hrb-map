@@ -18,8 +18,8 @@
       <!-- <button @click="toggleMapType" class="maptype-btn">
         切换底图
       </button> -->
-      <el-button :disabled="!points.length" @click="exportPoints">导出点位</el-button>
-      <el-button @click="triggerImport">导入点位</el-button>
+      <el-button :disabled="!points.length" @click="exportPoints">导出基站</el-button>
+      <el-button @click="triggerImport">导入基站</el-button>
       <!-- 隐藏的文件输入框 -->
       <input
         type="file"
@@ -39,40 +39,40 @@
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
     >
       <div class="menu-item" @click="showAddPointDialog" v-if="contextMenu.action === 'add'">
-        添加点位
+        添加基站
       </div>
       <div v-if="contextMenu.action === 'delete'">
         <div class="menu-item" @click="deletePoint">
-          删除点位
+          删除基站
         </div>
         <div class="menu-item" @click="showEditPointDialog(contextMenu.targetPointId)">
-          编辑点位名称
+          编辑基站
         </div>
       </div>
     </div>
-    
-    <!-- 点位添加/编辑对话框 -->
+
+    <!-- 基站添加/编辑对话框 -->
     <el-dialog
       v-model="pointDialog.visible"
-      :title="pointDialog.isEdit ? '编辑点位' : '添加点位'"
-      width="30%"
+      :title="pointDialog.isEdit ? '编辑基站' : '添加基站'"
+      width="480px"
       :close-on-click-modal="false"
       :before-close="closePointDialog"
     >
-      <el-form :model="pointDialog.form" label-width="120px">
-        <el-form-item label="点位名称">
-          <el-input v-model="pointDialog.form.name" placeholder="请输入点位名称"></el-input>
+      <el-form :model="pointDialog.form" label-position="top">
+        <el-form-item label="基站名称" :rules="{required: true}">
+          <el-input v-model="pointDialog.form.name" placeholder="请输入基站名称"></el-input>
         </el-form-item>
-        <el-form-item label="连接自点位" v-if="points.length > 0">
-          <el-select 
-            v-model="pointDialog.form.sourceId" 
-            placeholder="请选择连接来源点位"
+        <el-form-item label="连接自基站" v-if="points.length > 0">
+          <el-select
+            v-model="pointDialog.form.sourceId"
+            placeholder="请选择连接来源基站"
             clearable
           >
-            <el-option 
-              v-for="point in getAvailableSourcePoints()" 
-              :key="point.id" 
-              :label="point.serial.toString()" 
+            <el-option
+              v-for="point in getAvailableSourcePoints()"
+              :key="point.id"
+              :label="point.serial.toString()"
               :value="point.id"
             ></el-option>
           </el-select>
@@ -96,7 +96,7 @@ import 'echarts/extension/bmap/bmap'
 
 const BAIDU_AK = 'E4805d16520de693a3fe707cdc962045'
 
-// 点位数据接口
+// 基站数据接口
 interface Point {
   id: string
   serial: number | string // 序号
@@ -111,14 +111,14 @@ interface Connection {
   targetPointId: string
 }
 
-// 点位与连线
+// 基站与连线
 const points = ref<Point[]>([])
 const connections = ref<Connection[]>([])
 
 // 状态
 const isAnimationPlaying = ref(false)
 
-// 点位对话框
+// 基站对话框
 const pointDialog = ref({
   visible: false,
   isEdit: false,
@@ -151,8 +151,8 @@ onMounted(async () => {
 
   const option = {
     bmap: {
-      center: [127.9999, 45.3890],
-      zoom: 9,
+      center: [126.642464, 45.756967],
+      zoom: 12,
       roam: true
     }
   }
@@ -175,7 +175,7 @@ onMounted(async () => {
     }
   })
 
-  // 右键：添加点位
+  // 右键：添加基站
   chart.getZr().on('contextmenu', handleRightClick)
 
   // 左键：编辑或关闭菜单
@@ -228,7 +228,7 @@ function updateChartOption() {
         z: 10
       },
 
-      // 🔹 实际的点位图标
+      // 🔹 实际的基站图标
       {
         name: 'points',
         type: 'scatter',
@@ -335,7 +335,7 @@ function toggleMapType() {
   }
 }
 
-// 右键点击 → 添加点位
+// 右键点击 → 添加基站
 function handleRightClick(event: any) {
   if (!chart) return
   const pixel = [event.offsetX, event.offsetY]
@@ -353,7 +353,7 @@ function handleRightClick(event: any) {
   event.event.preventDefault()
 }
 
-// 左键点击 → 编辑点位 or 关闭菜单
+// 左键点击 → 编辑基站 or 关闭菜单
 function handleLeftClick(event: any) {
   if (!chart) return
   const pixel = [event.offsetX, event.offsetY]
@@ -363,7 +363,7 @@ function handleLeftClick(event: any) {
   const clickedPoint = findPointAtPosition(coord[0], coord[1])
 
   if (clickedPoint) {
-    // 点击已有点位 → 编辑/删除
+    // 点击已有基站 → 编辑/删除
     contextMenu.value = {
       visible: true,
       x: event.offsetX,
@@ -388,64 +388,64 @@ function hideContextMenu() {
   contextMenu.value.visible = false
 }
 
-// 显示添加点位对话框
+// 显示添加基站对话框
 function showAddPointDialog() {
   pointDialog.value.isEdit = false
   pointDialog.value.editPointId = ''
   pointDialog.value.form.name = ''
-  
-  // 默认选择上一个点位作为连接源
+
+  // 默认选择上一个基站作为连接源
   if (points.value.length > 0) {
     const lastPoint = points.value[points.value.length - 1]
     pointDialog.value.form.sourceId = lastPoint.id
   } else {
     pointDialog.value.form.sourceId = ''
   }
-  
+
   pointDialog.value.visible = true
   hideContextMenu()
 }
 
-// 显示编辑点位对话框
+// 显示编辑基站对话框
 function showEditPointDialog(pointId: string) {
   const point = points.value.find(p => p.id === pointId)
   if (!point) return
-  
+
   pointDialog.value.isEdit = true
   pointDialog.value.editPointId = pointId
   pointDialog.value.form.name = point.serial.toString()
-  
+
   // 查找是否有连接到此点的连线
   const connection = connections.value.find(c => c.targetPointId === pointId)
   pointDialog.value.form.sourceId = connection ? connection.sourceId : ''
-  
+
   pointDialog.value.visible = true
   hideContextMenu()
 }
 
-// 关闭点位对话框
+// 关闭基站对话框
 function closePointDialog() {
   pointDialog.value.visible = false
 }
 
-// 确认点位对话框
+// 确认基站对话框
 function confirmPointDialog() {
   if (!pointDialog.value.form.name.trim()) {
-    ElMessage.warning('请输入点位名称')
+    ElMessage.warning('请输入基站名称')
     return
   }
-  
+
   if (pointDialog.value.isEdit) {
-    // 编辑点位
+    // 编辑基站
     const point = points.value.find(p => p.id === pointDialog.value.editPointId)
     if (point) {
       point.serial = pointDialog.value.form.name
-      
+
       // 处理连线
       handleConnectionChange(pointDialog.value.editPointId, pointDialog.value.form.sourceId)
     }
   } else {
-    // 添加点位
+    // 添加基站
     const newPoint = {
       id: Date.now().toString(),
       serial: pointDialog.value.form.name,
@@ -453,13 +453,13 @@ function confirmPointDialog() {
       lat: contextMenu.value.clickCoord[1]
     }
     points.value.push(newPoint)
-    
+
     // 处理连线
     if (pointDialog.value.form.sourceId) {
       handleConnectionChange(newPoint.id, pointDialog.value.form.sourceId)
     }
   }
-  
+
   // 如果动画正在播放，先停止动画再更新图表，避免残留轨迹
   if (isAnimationPlaying.value) {
     isAnimationPlaying.value = false
@@ -471,7 +471,7 @@ function confirmPointDialog() {
   } else {
     updateChartOption()
   }
-  
+
   closePointDialog()
 }
 
@@ -482,8 +482,8 @@ function handleConnectionChange(targetPointId: string, sourceId: string) {
   if (existingConnIdx !== -1) {
     connections.value.splice(existingConnIdx, 1)
   }
-  
-  // 如果选择了源点位，则添加新连线
+
+  // 如果选择了源基站，则添加新连线
   if (sourceId) {
     connections.value.push({
       id: Date.now().toString(),
@@ -493,13 +493,13 @@ function handleConnectionChange(targetPointId: string, sourceId: string) {
   }
 }
 
-// 获取可用的连接源点位
+// 获取可用的连接源基站
 function getAvailableSourcePoints() {
   if (!pointDialog.value.isEdit) {
-    // 添加点位时，所有现有点位都可以作为源
+    // 添加基站时，所有现有基站都可以作为源
     return points.value
   } else {
-    // 编辑点位时，除了当前点位外的所有点位都可以作为源
+    // 编辑基站时，除了当前基站外的所有基站都可以作为源
     return points.value.filter(p => p.id !== pointDialog.value.editPointId)
   }
 }
@@ -507,13 +507,13 @@ function getAvailableSourcePoints() {
 function deletePoint() {
   const idx = points.value.findIndex(p => p.id === contextMenu.value.targetPointId)
   if (idx !== -1) points.value.splice(idx, 1)
-  
+
   // 删除相关的连线
-  connections.value = connections.value.filter(c => 
-    c.sourceId !== contextMenu.value.targetPointId && 
+  connections.value = connections.value.filter(c =>
+    c.sourceId !== contextMenu.value.targetPointId &&
     c.targetPointId !== contextMenu.value.targetPointId
   )
-  
+
   updateChartOption()
   hideContextMenu()
 }
