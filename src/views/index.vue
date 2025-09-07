@@ -3,12 +3,6 @@
     <!-- 工具栏 -->
     <div class="toolbar">
       <el-button
-        @click="toggleConnectMode"
-        :type="isConnectMode ? 'warning': 'primary'"
-      >
-        {{ isConnectMode ? '退出连线模式' : '进入连线模式' }}
-      </el-button>
-      <el-button
         @click="clearAllConnections"
         type="danger"
       >
@@ -38,30 +32,59 @@
 
     <div ref="chartRef" class="chart"></div>
 
-    <!-- 右键菜单 -->
+    <!-- 鼠标菜单栏 -->
     <div
       v-if="contextMenu.visible"
       class="context-menu"
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
     >
-      <div class="menu-item" @click="addPoint" v-if="contextMenu.action === 'add'">
+      <div class="menu-item" @click="showAddPointDialog" v-if="contextMenu.action === 'add'">
         添加点位
       </div>
       <div v-if="contextMenu.action === 'delete'">
         <div class="menu-item" @click="deletePoint">
           删除点位
         </div>
-        <div class="menu-item" @click="editSerial(contextMenu.targetPointId)">
+        <div class="menu-item" @click="showEditPointDialog(contextMenu.targetPointId)">
           编辑点位名称
-        </div>
-        <div v-if="isConnectMode" class="menu-item" @click="startConnection(contextMenu.targetPointId)">
-          从此点开始连线
-        </div>
-        <div v-if="isConnectMode && selectedPointForConnect" class="menu-item" @click="finishConnection(contextMenu.targetPointId)">
-          连接到此点
         </div>
       </div>
     </div>
+    
+    <!-- 点位添加/编辑对话框 -->
+    <el-dialog
+      v-model="pointDialog.visible"
+      :title="pointDialog.isEdit ? '编辑点位' : '添加点位'"
+      width="30%"
+      :close-on-click-modal="false"
+      :before-close="closePointDialog"
+    >
+      <el-form :model="pointDialog.form" label-width="120px">
+        <el-form-item label="点位名称">
+          <el-input v-model="pointDialog.form.name" placeholder="请输入点位名称"></el-input>
+        </el-form-item>
+        <el-form-item label="连接自点位" v-if="points.length > 0">
+          <el-select 
+            v-model="pointDialog.form.sourceId" 
+            placeholder="请选择连接来源点位"
+            clearable
+          >
+            <el-option 
+              v-for="point in getAvailableSourcePoints()" 
+              :key="point.id" 
+              :label="point.serial.toString()" 
+              :value="point.id"
+            ></el-option>
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="closePointDialog">取消</el-button>
+          <el-button type="primary" @click="confirmPointDialog">确定</el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -93,9 +116,18 @@ const points = ref<Point[]>([])
 const connections = ref<Connection[]>([])
 
 // 状态
-const isConnectMode = ref(false)
-const selectedPointForConnect = ref<string | null>(null)
 const isAnimationPlaying = ref(false)
+
+// 点位对话框
+const pointDialog = ref({
+  visible: false,
+  isEdit: false,
+  editPointId: '',
+  form: {
+    name: '',
+    sourceId: ''
+  }
+})
 
 // 地图类型
 const currentMapType = ref<'normal' | 'satellite'>('normal')
@@ -356,45 +388,134 @@ function hideContextMenu() {
   contextMenu.value.visible = false
 }
 
-function addPoint() {
-  ElMessageBox.prompt('请输入点位名称', '添加点位', {
-    confirmButtonText: '确认',
-    cancelButtonText: '取消',
-  }).then(({ value }) => {
-    points.value.push({
+// 显示添加点位对话框
+function showAddPointDialog() {
+  pointDialog.value.isEdit = false
+  pointDialog.value.editPointId = ''
+  pointDialog.value.form.name = ''
+  
+  // 默认选择上一个点位作为连接源
+  if (points.value.length > 0) {
+    const lastPoint = points.value[points.value.length - 1]
+    pointDialog.value.form.sourceId = lastPoint.id
+  } else {
+    pointDialog.value.form.sourceId = ''
+  }
+  
+  pointDialog.value.visible = true
+  hideContextMenu()
+}
+
+// 显示编辑点位对话框
+function showEditPointDialog(pointId: string) {
+  const point = points.value.find(p => p.id === pointId)
+  if (!point) return
+  
+  pointDialog.value.isEdit = true
+  pointDialog.value.editPointId = pointId
+  pointDialog.value.form.name = point.serial.toString()
+  
+  // 查找是否有连接到此点的连线
+  const connection = connections.value.find(c => c.targetPointId === pointId)
+  pointDialog.value.form.sourceId = connection ? connection.sourceId : ''
+  
+  pointDialog.value.visible = true
+  hideContextMenu()
+}
+
+// 关闭点位对话框
+function closePointDialog() {
+  pointDialog.value.visible = false
+}
+
+// 确认点位对话框
+function confirmPointDialog() {
+  if (!pointDialog.value.form.name.trim()) {
+    ElMessage.warning('请输入点位名称')
+    return
+  }
+  
+  if (pointDialog.value.isEdit) {
+    // 编辑点位
+    const point = points.value.find(p => p.id === pointDialog.value.editPointId)
+    if (point) {
+      point.serial = pointDialog.value.form.name
+      
+      // 处理连线
+      handleConnectionChange(pointDialog.value.editPointId, pointDialog.value.form.sourceId)
+    }
+  } else {
+    // 添加点位
+    const newPoint = {
       id: Date.now().toString(),
-      serial: value,
+      serial: pointDialog.value.form.name,
       lng: contextMenu.value.clickCoord[0],
       lat: contextMenu.value.clickCoord[1]
-    })
+    }
+    points.value.push(newPoint)
+    
+    // 处理连线
+    if (pointDialog.value.form.sourceId) {
+      handleConnectionChange(newPoint.id, pointDialog.value.form.sourceId)
+    }
+  }
+  
+  // 如果动画正在播放，先停止动画再更新图表，避免残留轨迹
+  if (isAnimationPlaying.value) {
+    isAnimationPlaying.value = false
     updateChartOption()
-    hideContextMenu()
-  }).catch(() => {})
+    setTimeout(() => {
+      isAnimationPlaying.value = true
+      updateChartOption()
+    }, 100)
+  } else {
+    updateChartOption()
+  }
+  
+  closePointDialog()
+}
+
+// 处理连线变更
+function handleConnectionChange(targetPointId: string, sourceId: string) {
+  // 先移除已有的连接到此点的连线
+  const existingConnIdx = connections.value.findIndex(c => c.targetPointId === targetPointId)
+  if (existingConnIdx !== -1) {
+    connections.value.splice(existingConnIdx, 1)
+  }
+  
+  // 如果选择了源点位，则添加新连线
+  if (sourceId) {
+    connections.value.push({
+      id: Date.now().toString(),
+      sourceId: sourceId,
+      targetPointId: targetPointId
+    })
+  }
+}
+
+// 获取可用的连接源点位
+function getAvailableSourcePoints() {
+  if (!pointDialog.value.isEdit) {
+    // 添加点位时，所有现有点位都可以作为源
+    return points.value
+  } else {
+    // 编辑点位时，除了当前点位外的所有点位都可以作为源
+    return points.value.filter(p => p.id !== pointDialog.value.editPointId)
+  }
 }
 
 function deletePoint() {
   const idx = points.value.findIndex(p => p.id === contextMenu.value.targetPointId)
   if (idx !== -1) points.value.splice(idx, 1)
+  
+  // 删除相关的连线
+  connections.value = connections.value.filter(c => 
+    c.sourceId !== contextMenu.value.targetPointId && 
+    c.targetPointId !== contextMenu.value.targetPointId
+  )
+  
   updateChartOption()
   hideContextMenu()
-}
-
-function editSerial(pointId: string) {
-  ElMessageBox.prompt('请输入点位名称', '编辑点位名称', {
-    confirmButtonText: '确认',
-    cancelButtonText: '取消',
-  }).then(({ value }) => {
-    const p = points.value.find(p => p.id === pointId)
-    if (p) p.serial = value
-    updateChartOption()
-    hideContextMenu()
-  }).catch(() => {})
-}
-
-function toggleConnectMode() {
-  isConnectMode.value = !isConnectMode.value
-  selectedPointForConnect.value = null
-  ElMessage.info(isConnectMode.value ? '已进入连线模式' : '已退出连线模式')
 }
 
 // 新增标记
@@ -408,29 +529,7 @@ function clearAllConnections() {
   ElMessage.success('已清除所有连线')
 }
 
-function startConnection(pointId: string) {
-  selectedPointForConnect.value = pointId
-  const p = points.value.find(p => p.id === pointId)
-  ElMessage.info(`已选择点位 ${p?.serial}`)
-  hideContextMenu()
-}
 
-// 当用户新建连线时，记得重置标记
-function finishConnection(targetPointId: string) {
-  if (!selectedPointForConnect.value || selectedPointForConnect.value === targetPointId) {
-    ElMessage.warning('请选择不同的起始点和目标点')
-    return
-  }
-  if (connections.value.find(c => c.sourceId === selectedPointForConnect.value && c.targetPointId === targetPointId)) {
-    ElMessage.warning('该连线已存在')
-    return
-  }
-  connections.value.push({ id: Date.now().toString(), sourceId: selectedPointForConnect.value, targetPointId })
-  forceClearConnections.value = false   // 有新连线时恢复
-  updateChartOption()
-  selectedPointForConnect.value = null
-  hideContextMenu()
-}
 
 function toggleAnimation() {
   isAnimationPlaying.value = !isAnimationPlaying.value
