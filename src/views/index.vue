@@ -99,7 +99,7 @@ const BAIDU_AK = 'E4805d16520de693a3fe707cdc962045'
 // 基站数据接口
 interface Point {
   id: string
-  serial: number | string // 序号
+  serial: string // 序号
   lng: number // 经度
   lat: number // 纬度
 }
@@ -163,7 +163,7 @@ onMounted(async () => {
   loadBaiduMapScript()
 
   // 获取百度地图实例
-  bmap = chart.getModel().getComponent('bmap').getBMap()
+  bmap = (chart as any).getModel().getComponent('bmap').getBMap()
 
   // 初始禁用双击缩放
   bmap.disableDoubleClickZoom()
@@ -557,7 +557,7 @@ function exportPoints() {
 
   const a = document.createElement('a')
   a.href = url
-  a.download = 'map-data.json'
+  a.download = '基站数据.json'
   a.click()
   URL.revokeObjectURL(url)
 }
