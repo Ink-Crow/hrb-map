@@ -63,7 +63,7 @@
         <el-form-item label="基站名称" :rules="{required: true}">
           <el-input v-model="pointDialog.form.name" placeholder="请输入基站名称"></el-input>
         </el-form-item>
-        <el-form-item label="连接自基站" v-if="points.length > 0">
+        <el-form-item label="连接自基站" v-if="points.length > 1">
           <el-select
             v-model="pointDialog.form.sourceId"
             placeholder="请选择连接来源基站"
@@ -234,7 +234,7 @@ function updateChartOption() {
         type: 'scatter',
         coordinateSystem: 'bmap',
         data: scatterData,
-        symbol: 'image://wrj.svg',   // 用图片
+        symbol: 'image://jz.png',   // 用图片
         symbolSize: [40, 40],        // 图片大小
         z: 11,                       // 显示在透明热区上面
         label: {
@@ -286,7 +286,7 @@ function updateChartOption() {
           show: lineData.length > 0 && isAnimationPlaying.value,
           period: 8,
           trailLength: 0,
-          symbol: 'image://wrj.svg',
+          symbol: 'image://wrj.png',
           symbolSize: [30, 30],
           color: '#409eff'
         }
