@@ -1,5 +1,10 @@
 <template>
   <div class="map-box" style="width: 100vw; height: 100vh;">
+    <!-- 顶部title -->
+    <div class="map-title">
+      <!-- <img src="../../public/title.png" class="title-img"> -->
+    </div>
+
     <!-- 工具栏 -->
     <div class="toolbar">
       <el-button
@@ -587,11 +592,52 @@ function importPoints(event: Event) {
   }
   reader.readAsText(file)
 }
+
+// 计算两点之间的球面距离（单位：公里）
+function calculateDistance(lng1: number, lat1: number, lng2: number, lat2: number): number {
+  const R = 6371 // 地球半径，单位 km
+  const toRad = (deg: number) => deg * Math.PI / 180
+
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLng / 2) ** 2
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c // 返回公里
+}
+
+// 计算所有连线的总长度
+function calculateTotalDistance(): number {
+  const lineData = getLineData()
+  let total = 0
+  lineData.forEach(line => {
+    const [[lng1, lat1], [lng2, lat2]] = line.coords
+    total += calculateDistance(lng1, lat1, lng2, lat2)
+  })
+  return total
+}
 </script>
 
 <style scoped>
 .map-box {
   position: relative;
+  .map-title {
+    position: absolute;
+    top: 0px;
+    left: 50%; /* 将元素左边定位在父级元素的 50% */
+    transform: translateX(-50%); /* 再往左偏移自身宽度的 50%，实现居中 */
+    z-index: 9;
+    width: 100%;
+    height: 100px;
+    background-image: url('../../public/title.png'); /* 图片路径 */
+    background-size: cover; /* cover: 填满容器, contain: 完整显示图片 */
+    .title-img {
+      width: 100%;
+    }
+  }
 
   .toolbar {
     position: absolute;
