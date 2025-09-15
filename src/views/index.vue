@@ -1,8 +1,40 @@
 <template>
-  <div class="map-box" style="width: 100vw; height: 100vh;">
+  <div class="map_box" style="width: 100vw; height: 100vh;">
     <!-- 顶部title -->
-    <div class="map-title">
+    <div class="map_title">
       <!-- <img src="../../public/title.png" class="title-img"> -->
+    </div>
+
+    <div class="part_content">
+      <div class="part_heard"></div>
+      <div class="part_boday">
+        <div class="distance-container" style="margin-bottom: 12px">
+          <div class="distance-label">基站数：</div>
+          <div class="distance-value">
+            <transition-group name="flip" tag="div" class="digits">
+              <img
+                v-for="(char, index) in totalFormattedDistanceArray"
+                :key="index"
+                :src="getDigitImage(char)"
+                class="digit"
+              />
+            </transition-group>
+          </div>
+        </div>
+        <div class="distance-container">
+          <div class="distance-label">总里程：</div>
+          <div class="distance-value">
+            <transition-group name="flip" tag="div" class="digits">
+              <img
+                v-for="(char, index) in formattedDistanceArray"
+                :key="index"
+                :src="getDigitImage(char)"
+                class="digit"
+              />
+            </transition-group>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 工具栏 -->
@@ -94,9 +126,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import * as echarts from 'echarts'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import 'echarts/extension/bmap/bmap'
 
 const BAIDU_AK = 'E4805d16520de693a3fe707cdc962045'
@@ -188,6 +220,8 @@ onMounted(async () => {
 
   // 地图类型控件
   const mapTypeControl = new (window as any).BMap.MapTypeControl({
+    anchor: (window as any).BMAP_ANCHOR_BOTTOM_RIGHT, // 右下角
+    offset: new (window as any).BMap.Size(20, 20),    // 往内偏移 20px
     mapTypes: [
       (window as any).BMAP_NORMAL_MAP,
       (window as any).BMAP_HYBRID_MAP
@@ -534,8 +568,6 @@ function clearAllConnections() {
   ElMessage.success('已清除所有连线')
 }
 
-
-
 function toggleAnimation() {
   isAnimationPlaying.value = !isAnimationPlaying.value
   updateChartOption()
@@ -609,7 +641,9 @@ function calculateDistance(lng1: number, lat1: number, lng2: number, lat2: numbe
   return R * c // 返回公里
 }
 
-// 计算所有连线的总长度
+const totalDistance = ref(0)
+
+// 计算所有连线的总长度，保留 2 位小数
 function calculateTotalDistance(): number {
   const lineData = getLineData()
   let total = 0
@@ -617,25 +651,73 @@ function calculateTotalDistance(): number {
     const [[lng1, lat1], [lng2, lat2]] = line.coords
     total += calculateDistance(lng1, lat1, lng2, lat2)
   })
-  return total
+  return Number(total.toFixed(2)) // 保留两位小数
 }
+
+// ✅ 修改这里：保证两位小数的字符串，并拆成字符数组
+const formattedDistanceArray = computed(() => {
+  const formatted = totalDistance.value.toFixed(2) // "1.10"
+  return formatted.split('')
+})
+
+const totalFormattedDistanceArray = computed(() => {
+  const formatted = points.value.length.toString() // "1.10"
+  return formatted.split('')
+})
+
+// 返回图片路径
+function getDigitImage(char: string) {
+  if (char === '.') {
+    return '/dot.svg' // 你可以准备一个小数点图片
+  }
+  return `/shuzi${char}.svg`
+}
+
+// ✅ 修正 watch 监听
+watch(points, () => {
+  totalDistance.value = calculateTotalDistance()
+}, { deep: true })
 </script>
 
-<style scoped>
-.map-box {
+<style scoped lang="scss">
+.map_box {
   position: relative;
-  .map-title {
+  .map_title {
     position: absolute;
     top: 0px;
     left: 50%; /* 将元素左边定位在父级元素的 50% */
     transform: translateX(-50%); /* 再往左偏移自身宽度的 50%，实现居中 */
     z-index: 9;
     width: 100%;
-    height: 100px;
+    height: 80px;
     background-image: url('../../public/title.png'); /* 图片路径 */
-    background-size: cover; /* cover: 填满容器, contain: 完整显示图片 */
+    background-size: 100% 100%; /* cover: 填满容器, contain: 完整显示图片 */
+    background-repeat: no-repeat;
     .title-img {
       width: 100%;
+    }
+  }
+
+  .part_content {
+    position: absolute;
+    top: 100px;
+    left: 10px;
+    width: 250px;
+    height: 210px;
+    background-color: rgba(2,27,72, 0.6);
+    color: #fff;
+    border-radius: 10px;
+    z-index: 1;
+    font-size: 20px;
+    // .part_heard {
+    //   width: 100%;
+    //   height: 50px;
+    //   background-image: url('../../public/title-samll.png'); /* 图片路径 */
+    //   background-size: cover; /* cover: 填满容器, contain: 完整显示图片 */
+    //   background-position: left;
+    // }
+    .part_boday {
+      padding: 20px;
     }
   }
 
@@ -787,6 +869,51 @@ function calculateTotalDistance(): number {
         }
       }
     }
+  }
+
+  .distance-label {
+    margin-bottom: 5px;
+  }
+
+  .distance-value {
+    display: flex;
+    align-items: center;
+  }
+
+  .digits {
+    display: flex;
+    gap: 4px;
+    perspective: 400px; // ✅ 增加透视，旋转更立体
+  }
+
+  .digit {
+    width: 30px;
+    height: 40px;
+    object-fit: contain;
+    display: inline-block;
+    backface-visibility: hidden; // ✅ 防止闪白
+  }
+
+  .flip-enter-active, .flip-leave-active {
+    transition: transform 0.3s ease, opacity 0.3s ease;
+  }
+
+  .flip-enter-from {
+    transform: rotateX(90deg);
+    opacity: 0;
+  }
+  .flip-enter-to {
+    transform: rotateX(0);
+    opacity: 1;
+  }
+
+  .flip-leave-from {
+    transform: rotateX(0);
+    opacity: 1;
+  }
+  .flip-leave-to {
+    transform: rotateX(-90deg);
+    opacity: 0;
   }
 }
 </style>
