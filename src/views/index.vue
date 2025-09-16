@@ -751,17 +751,23 @@ function togglePointLabels() {
 
   if (!chart) return
   const option = chart.getOption()
-  const series = option.series?.map((s: any) => {
+
+  const seriesArray = Array.isArray(option.series) ? option.series : []
+
+  const updatedSeries = seriesArray.map((s: any) => {
     if (s.name === 'points') {
       return {
         ...s,
-        label: { ...s.label, show: areLabelsVisible.value }
+        label: {
+          ...s.label,
+          show: areLabelsVisible.value
+        }
       }
     }
     return s
   })
 
-  chart.setOption({ series })
+  chart.setOption({ series: updatedSeries })
 }
 
 // 监听工具栏容器的鼠标事件
