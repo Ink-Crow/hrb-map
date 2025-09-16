@@ -3,60 +3,112 @@
     <!-- 顶部title -->
     <div class="map_title">
       <!-- <img src="../../public/title.png" class="title-img"> -->
+      <div class="map_title_txt">
+        哈尔滨市无人机数据大屏
+      </div>
     </div>
 
+    <!-- 组件 -->
     <div class="part_content">
       <div class="part_heard"></div>
       <div class="part_boday">
-        <div class="distance-container" style="margin-bottom: 12px">
-          <div class="distance-label">基站数：</div>
+        <div class="distance-container" style="margin-bottom: 16px">
+          <div class="distance-label">基站数</div>
           <div class="distance-value">
-            <transition-group name="flip" tag="div" class="digits">
-              <img
-                v-for="(char, index) in totalFormattedDistanceArray"
-                :key="index"
-                :src="getDigitImage(char)"
-                class="digit"
-              />
-            </transition-group>
+            <div class="digits-container">
+              <div class="digits">
+                <template v-for="(char, index) in totalFormattedDistanceArray" :key="index">
+                  <div class="digit-wrapper">
+                    <transition name="digit-flip">
+                      <img
+                        :key="char + '-' + index + '-' + stationCount"
+                        :src="getDigitImage(char)"
+                        class="digit"
+                      />
+                    </transition>
+                  </div>
+                </template>
+              </div>
+            </div>
           </div>
         </div>
         <div class="distance-container">
-          <div class="distance-label">总里程：</div>
+          <div class="distance-label">总里程</div>
           <div class="distance-value">
-            <transition-group name="flip" tag="div" class="digits">
-              <img
-                v-for="(char, index) in formattedDistanceArray"
-                :key="index"
-                :src="getDigitImage(char)"
-                class="digit"
-              />
-            </transition-group>
+            <div class="digits-container">
+              <div class="digits">
+                <template v-for="(char, index) in formattedDistanceArray" :key="index">
+                  <div class="digit-wrapper">
+                    <transition name="digit-flip">
+                      <img
+                        :key="char + '-' + index + '-' + totalDistance"
+                        :src="getDigitImage(char)"
+                        class="digit"
+                      />
+                    </transition>
+                  </div>
+                </template>
+                <div style="display: flex; align-items: flex-end;">
+                  km
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
     <!-- 工具栏 -->
-    <div class="toolbar">
-      <el-button
-        @click="clearAllConnections"
-        type="danger"
-      >
-        清除所有连线
-      </el-button>
-      <el-button
-        @click="toggleAnimation"
-        type="success"
-        :disabled="getLineData().length === 0"
-      >
-        {{ isAnimationPlaying ? '停止动画' : '开始动画' }}
-      </el-button>
-      <!-- <button @click="toggleMapType" class="maptype-btn">
-        切换底图
-      </button> -->
-      <el-button :disabled="!points.length" @click="exportPoints">导出基站</el-button>
-      <el-button @click="triggerImport">导入基站</el-button>
+    <div class="toolbar-container" ref="toolbarContainer">
+      <!-- 提示图标 -->
+      <div class="toolbar-trigger">
+        <el-icon color="#FFF"><DArrowLeft /></el-icon>
+      </div>
+
+      <!-- 工具栏 -->
+      <div class="toolbar">
+        <div class="toolbar-buttons" :class="{ collapsed: !isToolbarExpanded }">
+          <el-button
+            @click="clearAllConnections"
+            type="danger"
+            class="fixed-width-btn"
+          >
+            清除连线
+          </el-button>
+          <el-button
+            @click="toggleAnimation"
+            type="success"
+            :disabled="getLineData().length === 0"
+            style="margin-left: 0px;"
+            class="fixed-width-btn"
+          >
+            {{ isAnimationPlaying ? '停止动画' : '开始动画' }}
+          </el-button>
+          <el-button
+            :disabled="!points.length"
+            @click="exportPoints"
+            style="margin-left: 0px;"
+            class="fixed-width-btn"
+          >
+            导出基站
+          </el-button>
+          <el-button
+            @click="triggerImport"
+            style="margin-left: 0px;"
+            class="fixed-width-btn"
+          >
+            导入基站
+          </el-button>
+          <el-button
+            @click="togglePointLabels"
+            style="margin-left: 0px;"
+            class="fixed-width-btn"
+          >
+            {{ areLabelsVisible ? '隐藏标签' : '显示标签' }}
+          </el-button>
+        </div>
+      </div>
+
       <!-- 隐藏的文件输入框 -->
       <input
         type="file"
@@ -129,6 +181,7 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
+import { DArrowLeft } from '@element-plus/icons-vue'
 import 'echarts/extension/bmap/bmap'
 
 const BAIDU_AK = 'E4805d16520de693a3fe707cdc962045'
@@ -154,6 +207,10 @@ const connections = ref<Connection[]>([])
 
 // 状态
 const isAnimationPlaying = ref(false)
+const isToolbarExpanded = ref(false)
+const toolbarContainer = ref<HTMLElement | null>(null)
+const stationCount = ref(0)
+const totalDistance = ref(0)
 
 // 基站对话框
 const pointDialog = ref({
@@ -625,13 +682,15 @@ function importPoints(event: Event) {
   reader.readAsText(file)
 }
 
-// 计算两点之间的球面距离（单位：公里）
+// 计算两点之间的球面距离（单位：公里）- 使用Haversine公式
 function calculateDistance(lng1: number, lat1: number, lng2: number, lat2: number): number {
   const R = 6371 // 地球半径，单位 km
   const toRad = (deg: number) => deg * Math.PI / 180
 
   const dLat = toRad(lat2 - lat1)
   const dLng = toRad(lng2 - lng1)
+
+  // Haversine公式
   const a =
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
@@ -641,41 +700,89 @@ function calculateDistance(lng1: number, lat1: number, lng2: number, lat2: numbe
   return R * c // 返回公里
 }
 
-const totalDistance = ref(0)
-
 // 计算所有连线的总长度，保留 2 位小数
 function calculateTotalDistance(): number {
   const lineData = getLineData()
   let total = 0
+
+  // 确保按照连线顺序计算总距离
   lineData.forEach(line => {
     const [[lng1, lat1], [lng2, lat2]] = line.coords
     total += calculateDistance(lng1, lat1, lng2, lat2)
   })
-  return Number(total.toFixed(2)) // 保留两位小数
+
+  return parseFloat(total.toFixed(2)) // 保留两位小数
 }
 
-// ✅ 修改这里：保证两位小数的字符串，并拆成字符数组
+// 更新基站数和总里程的计算逻辑
+function updateStatsDisplay() {
+  // 更新基站数
+  stationCount.value = points.value.length
+
+  // 更新总里程
+  totalDistance.value = calculateTotalDistance()
+}
+
+// 格式化总里程，确保显示两位小数
 const formattedDistanceArray = computed(() => {
-  const formatted = totalDistance.value.toFixed(2) // "1.10"
+  // 保证两位小数
+  const formatted = totalDistance.value.toFixed(2) // 例如 "1.10"
   return formatted.split('')
 })
 
+// 格式化基站数
 const totalFormattedDistanceArray = computed(() => {
-  const formatted = points.value.length.toString() // "1.10"
+  const formatted = stationCount.value.toString()
   return formatted.split('')
 })
 
-// 返回图片路径
+// 返回数字图片路径
 function getDigitImage(char: string) {
   if (char === '.') {
-    return '/dot.svg' // 你可以准备一个小数点图片
+    return '/dot.svg' // 小数点图片
   }
   return `/shuzi${char}.svg`
 }
 
-// ✅ 修正 watch 监听
-watch(points, () => {
-  totalDistance.value = calculateTotalDistance()
+const areLabelsVisible = ref(true)
+
+function togglePointLabels() {
+  areLabelsVisible.value = !areLabelsVisible.value
+
+  if (!chart) return
+  const option = chart.getOption()
+  const series = option.series?.map((s: any) => {
+    if (s.name === 'points') {
+      return {
+        ...s,
+        label: { ...s.label, show: areLabelsVisible.value }
+      }
+    }
+    return s
+  })
+
+  chart.setOption({ series })
+}
+
+// 监听工具栏容器的鼠标事件
+onMounted(() => {
+  if (toolbarContainer.value) {
+    toolbarContainer.value.addEventListener('mouseenter', () => {
+      isToolbarExpanded.value = true
+    })
+
+    toolbarContainer.value.addEventListener('mouseleave', () => {
+      isToolbarExpanded.value = false
+    })
+  }
+
+  // 初始化统计数据
+  updateStatsDisplay()
+})
+
+// 监听点位变化，更新总距离和基站数
+watch([points, connections], () => {
+  updateStatsDisplay()
 }, { deep: true })
 </script>
 
@@ -693,6 +800,16 @@ watch(points, () => {
     background-image: url('../../public/title.png'); /* 图片路径 */
     background-size: 100% 100%; /* cover: 填满容器, contain: 完整显示图片 */
     background-repeat: no-repeat;
+    .map_title_txt {
+      width: 100%;
+      height: 100%;
+      text-align: center;
+      line-height: 50px;
+      font-size: 30px;
+      font-weight: bold;
+      color: #fff;
+      letter-spacing: 6px;
+    }
     .title-img {
       width: 100%;
     }
@@ -701,10 +818,10 @@ watch(points, () => {
   .part_content {
     position: absolute;
     top: 100px;
-    left: 10px;
+    left: 50px;
     width: 250px;
     height: 210px;
-    background-color: rgba(2,27,72, 0.6);
+    background-color: rgba(2,27,72, 0.7);
     color: #fff;
     border-radius: 10px;
     z-index: 1;
@@ -721,13 +838,65 @@ watch(points, () => {
     }
   }
 
-  .toolbar {
+  .toolbar-container {
     position: absolute;
-    top: 10px;
-    left: 10px;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
     z-index: 1000;
     display: flex;
-    gap: 10px;
+    align-items: center;
+
+    /* 提示图标 */
+    .toolbar-trigger {
+      width: 30px;
+      height: 40px;
+      background-color: rgba(2, 27, 72, 0.6);
+      border-radius: 8px 0 0 8px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      color: white;
+      font-size: 20px;
+      box-shadow: -2px 0 5px rgba(0, 0, 0, 0.2);
+    }
+
+    /* 工具栏 */
+    .toolbar {
+      width: 0px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background-color: rgba(2, 27, 72, 0.6);
+      padding: 0;
+      border-radius: 8px 0 0 8px;
+      transition: width 0.3s ease;
+      box-shadow: -2px 0 5px rgba(0, 0, 0, 0.2);
+
+      .toolbar-buttons {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 15px;
+        transition: opacity 0.3s ease;
+
+        &.collapsed {
+          opacity: 0; /* ✅ 渐隐按钮 */
+          pointer-events: none; /* 防止点击 */
+        }
+      }
+
+      .fixed-width-btn {
+        width: 120px !important;
+        text-align: center;
+      }
+    }
+
+    /* 鼠标悬停时显示工具栏 */
+    &:hover .toolbar {
+      width: 150px;
+    }
 
     .mode-btn, .clear-btn, .animation-btn, .maptype-btn {
       padding: 8px 16px;
@@ -873,6 +1042,9 @@ watch(points, () => {
 
   .distance-label {
     margin-bottom: 5px;
+    font-size: 18px;
+    color: #fff;
+    font-weight: bold;
   }
 
   .distance-value {
@@ -880,40 +1052,60 @@ watch(points, () => {
     align-items: center;
   }
 
+  .digits-container {
+    position: relative;
+    height: 40px;
+    overflow: hidden;
+  }
+
   .digits {
     display: flex;
     gap: 4px;
-    perspective: 400px; // ✅ 增加透视，旋转更立体
+    perspective: 600px;
+    height: 40px;
+  }
+
+  .digit-wrapper {
+    width: 40px;
+    height: 40px;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
   }
 
   .digit {
-    width: 30px;
+    width: 40px;
     height: 40px;
     object-fit: contain;
     display: inline-block;
-    backface-visibility: hidden; // ✅ 防止闪白
+    backface-visibility: hidden;
+    transform-style: preserve-3d;
+    position: absolute;
   }
 
-  .flip-enter-active, .flip-leave-active {
-    transition: transform 0.3s ease, opacity 0.3s ease;
+  .digit-flip-enter-active,
+  .digit-flip-leave-active {
+    transition: all 1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    position: absolute;
+    top: 0;
   }
 
-  .flip-enter-from {
+  .digit-flip-enter-from {
     transform: rotateX(90deg);
     opacity: 0;
   }
-  .flip-enter-to {
-    transform: rotateX(0);
-    opacity: 1;
-  }
 
-  .flip-leave-from {
-    transform: rotateX(0);
-    opacity: 1;
-  }
-  .flip-leave-to {
+  .digit-flip-leave-to {
     transform: rotateX(-90deg);
     opacity: 0;
+  }
+
+  .digit-flip-enter-to,
+  .digit-flip-leave-from {
+    transform: rotateX(0);
+    opacity: 1;
   }
 }
 </style>
