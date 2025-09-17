@@ -4,7 +4,7 @@
     <div class="map_title">
       <!-- <img src="../../public/title.png" class="title-img"> -->
       <div class="map_title_txt">
-        哈尔滨市无人机数据大屏
+        盛世低空一网通飞AI监管平台
       </div>
     </div>
 
