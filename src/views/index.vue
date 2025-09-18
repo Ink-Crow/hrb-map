@@ -152,11 +152,13 @@
         <el-form-item label="基站名称" :rules="{required: true}">
           <el-input v-model="pointDialog.form.name" placeholder="请输入基站名称"></el-input>
         </el-form-item>
-        <el-form-item label="连接自基站" v-if="points.length > 1">
+        <el-form-item label="起始基站" v-if="points.length > 1">
           <el-select
-            v-model="pointDialog.form.sourceId"
-            placeholder="请选择连接来源基站"
-            clearable
+            v-model="pointDialog.form.sourceIds"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="请选择连接起始基站"
           >
             <el-option
               v-for="point in getAvailableSourcePoints()"
@@ -219,7 +221,7 @@ const pointDialog = ref({
   editPointId: '',
   form: {
     name: '',
-    sourceId: ''
+    sourceIds: [] as string[]
   }
 })
 
@@ -490,12 +492,12 @@ function showAddPointDialog() {
   pointDialog.value.editPointId = ''
   pointDialog.value.form.name = ''
 
-  // 默认选择上一个基站作为连接源
+  // ✅ 默认选择上一个基站作为连接源（如果有）
   if (points.value.length > 0) {
     const lastPoint = points.value[points.value.length - 1]
-    pointDialog.value.form.sourceId = lastPoint.id
+    pointDialog.value.form.sourceIds = [lastPoint.id] // 这里改成数组
   } else {
-    pointDialog.value.form.sourceId = ''
+    pointDialog.value.form.sourceIds = []
   }
 
   pointDialog.value.visible = true
@@ -511,9 +513,10 @@ function showEditPointDialog(pointId: string) {
   pointDialog.value.editPointId = pointId
   pointDialog.value.form.name = point.serial.toString()
 
-  // 查找是否有连接到此点的连线
-  const connection = connections.value.find(c => c.targetPointId === pointId)
-  pointDialog.value.form.sourceId = connection ? connection.sourceId : ''
+  // 找出所有指向当前点的连线，回填 sourceIds
+  pointDialog.value.form.sourceIds = connections.value
+    .filter(c => c.targetPointId === pointId)
+    .map(c => c.sourceId)
 
   pointDialog.value.visible = true
   hideContextMenu()
@@ -521,6 +524,7 @@ function showEditPointDialog(pointId: string) {
 
 // 关闭基站对话框
 function closePointDialog() {
+  pointDialog.value.form.sourceIds = []
   pointDialog.value.visible = false
 }
 
@@ -537,8 +541,8 @@ function confirmPointDialog() {
     if (point) {
       point.serial = pointDialog.value.form.name
 
-      // 处理连线
-      handleConnectionChange(pointDialog.value.editPointId, pointDialog.value.form.sourceId)
+      // 处理连线：允许多个来源
+      handleConnectionChange(pointDialog.value.editPointId, pointDialog.value.form.sourceIds)
     }
   } else {
     // 添加基站
@@ -550,13 +554,12 @@ function confirmPointDialog() {
     }
     points.value.push(newPoint)
 
-    // 处理连线
-    if (pointDialog.value.form.sourceId) {
-      handleConnectionChange(newPoint.id, pointDialog.value.form.sourceId)
+    if (pointDialog.value.form.sourceIds.length > 0) {
+      handleConnectionChange(newPoint.id, pointDialog.value.form.sourceIds)
     }
   }
 
-  // 如果动画正在播放，先停止动画再更新图表，避免残留轨迹
+  // 刷新图表逻辑不变
   if (isAnimationPlaying.value) {
     isAnimationPlaying.value = false
     updateChartOption()
@@ -572,21 +575,18 @@ function confirmPointDialog() {
 }
 
 // 处理连线变更
-function handleConnectionChange(targetPointId: string, sourceId: string) {
-  // 先移除已有的连接到此点的连线
-  const existingConnIdx = connections.value.findIndex(c => c.targetPointId === targetPointId)
-  if (existingConnIdx !== -1) {
-    connections.value.splice(existingConnIdx, 1)
-  }
+function handleConnectionChange(targetPointId: string, sourceIds: string[]) {
+  // 删除所有指向当前 target 的旧连线
+  connections.value = connections.value.filter(c => c.targetPointId !== targetPointId)
 
-  // 如果选择了源基站，则添加新连线
-  if (sourceId) {
+  // 批量新增
+  sourceIds.forEach(sourceId => {
     connections.value.push({
-      id: Date.now().toString(),
-      sourceId: sourceId,
-      targetPointId: targetPointId
+      id: Date.now().toString() + Math.random(), // 避免重复
+      sourceId,
+      targetPointId
     })
-  }
+  })
 }
 
 // 获取可用的连接源基站
@@ -705,13 +705,24 @@ function calculateTotalDistance(): number {
   const lineData = getLineData()
   let total = 0
 
-  // 确保按照连线顺序计算总距离
+  const seenPairs = new Set<string>() // ✅ 用来去重
+
   lineData.forEach(line => {
     const [[lng1, lat1], [lng2, lat2]] = line.coords
-    total += calculateDistance(lng1, lat1, lng2, lat2)
+
+    // 生成唯一 key（保证 A-B 和 B-A 视为同一条线）
+    const key = [lng1, lat1, lng2, lat2]
+      .map(n => n.toFixed(6)) // 保留 6 位小数，避免浮点误差
+      .sort()                 // 排序保证方向无关
+      .join(',')
+
+    if (!seenPairs.has(key)) {
+      seenPairs.add(key)
+      total += calculateDistance(lng1, lat1, lng2, lat2)
+    }
   })
 
-  return parseFloat(total.toFixed(2)) // 保留两位小数
+  return parseFloat(total.toFixed(2))
 }
 
 // 更新基站数和总里程的计算逻辑
